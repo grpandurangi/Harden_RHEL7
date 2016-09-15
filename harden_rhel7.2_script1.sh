@@ -217,7 +217,7 @@ systemctl restart sshd.service
 
 # 11 Login defs
 
-grep PASS_MAX_DAYS /etc/login.defs|grep -v "#"|grep 90
+grep -q PASS_MAX_DAYS /etc/login.defs|grep -v "#"|grep 90
 RC=$?
 
 if [[ ! -e /etc/login.defs.orig ]]; then
