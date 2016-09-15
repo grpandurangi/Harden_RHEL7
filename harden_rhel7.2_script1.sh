@@ -29,7 +29,10 @@ SYS_LOC="/tmp/SYS_LOC"
 -w /etc/sysconfig/network -p wa -k system-locale
 SYS_LOC
 
-
+BANNER="/tmp/BANNER"
+/bin/cat <<BAN >$BANNER
+Authorized uses only. All activity may be monitored and reported.
+BAN
 
 grep -q "[[:space:]]/tmp[[:space:]]" /etc/fstab
 RC=$?
@@ -79,7 +82,7 @@ fi
 grep -q "time-change" /etc/audit/audit.rules
 RC=$?
 
-if [[ "RC" -gt "0" ]] ; then
+if [[ "$RC" -gt "0" ]] ; then
 
 cat $TMP_CHG >> /etc/audit/audit.rules
 pkill -HUP -P 1 auditd
@@ -125,3 +128,104 @@ grep system-locale /etc/audit/audit.rules
 
 fi
 
+# 8 Collect System Administrator Actions  and 
+# Make the Audit Configuration Immutable 
+
+grep -q scope /etc/audit/audit.rules
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+echo "-w /etc/sudoers -p wa -k scope" >> /etc/audit/audit.rules
+fi
+
+grep -q actions /etc/audit/audit.rules
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+echo "-w /var/log/sudo.log -p wa -k actions" >> /etc/audit/audit.rules
+fi
+
+# 8 Set permission on cron files and folders
+
+files_folder="/etc/crontab /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly /etc/cron.d"
+
+for folder in "$files_folder"
+do 
+
+stat -L -c "%a %u %g" $folder | egrep ".00 0 0"
+
+chown root:root $folder
+chmod og-rwx $folder
+
+stat -L -c "%a %u %g" $folder | egrep ".00 0 0" 
+
+done
+
+
+#10 SSH changes.
+
+#Take backup before doing anything
+
+if [[ ! -e /etc/ssh/sshd_config.orig ]]; then
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.orig
+fi
+
+chown root:root /etc/ssh/sshd_config
+chmod 600 /etc/ssh/sshd_config
+cp $BANNER /etc/issue
+
+grep -q "^Protocol 2" /etc/ssh/sshd_config.orig
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+sed -i '/^#Protocol 2/ s/#Protocol/Protocol/' /etc/ssh/sshd_config
+fi
+
+grep -q "^LogLevel" /etc/ssh/sshd_config
+RC=$?
+if [[ "$RC" -gt "0" ]] ; then
+sed -i '/LogLevel / s/#LogLevel/LogLevel/' /etc/ssh/sshd_config
+fi
+
+grep -q "^X11Forwarding" /etc/ssh/sshd_config|grep no
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+sed -i '/X11Forwarding / s/#X11Forwarding/X11Forwarding/' /etc/ssh/sshd_config
+sed -i '/X11Forwarding / s/yes/no/' /etc/ssh/sshd_config
+fi
+
+grep -q "^MaxAuthTries" /etc/ssh/sshd_config
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+sed -i '/^#MaxAuthTries / s/#MaxAuthTries 6/MaxAuthTries 4/' /etc/ssh/sshd_config
+fi
+
+grep -q "PermitRootLogin" /etc/ssh/sshd_config|grep no
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+sed -i '/PermitRootLogin /s/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config
+sed -i '/PermitRootLogin /s/yes/no/' /etc/ssh/sshd_config
+fi
+
+grep -q "^Banner" /etc/ssh/sshd_config
+RC=$?
+if [[ "$RC" -gt "0" ]]; then
+sed -i '/Banner/ s/#Banner/Banner/' /etc/ssh/sshd_config
+sed -i '/Banner/ s#none#/etc/issue#' /etc/ssh/sshd_config
+fi
+
+
+systemctl restart sshd.service
+
+
+# 11 Login defs
+
+grep PASS_MAX_DAYS /etc/login.defs|grep -v "#"|grep 90
+RC=$?
+
+if [[ ! -e /etc/login.defs.orig ]]; then
+
+cp /etc/login.defs /etc/login.defs.orig
+
+fi
+
+if [[ "$RC" -gt "0" ]]; then
+sed -i '/^PASS_MAX_DAYS/ s/[[:alnum:]]*$/90/' /etc/login.defs
+fi
